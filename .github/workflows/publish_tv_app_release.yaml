@@ -19,38 +19,6 @@ jobs:
           repository: xiaoyaocz/dart_simple_live.git
           ref: dev
 
-      # 检查必要的 Secrets 是否存在
-      - name: Check required secrets
-        run: |
-          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "❌ KEYSTORE_BASE64 secret is not set!"
-            exit 1
-          fi
-          if [ -z "${{ secrets.STORE_PASSWORD }}" ] || [ -z "${{ secrets.KEY_PASSWORD }}" ] || [ -z "${{ secrets.KEY_ALIAS }}" ]; then
-            echo "❌ Android keystore password/alias secrets are missing!"
-            exit 1
-          fi
-          if [ -z "${{ secrets.TV_KEYSTORE_BASE64 }}" ]; then
-            echo "❌ TV_KEYSTORE_BASE64 secret is not set!"
-            exit 1
-          fi
-
-      # APK签名设置
-      - name: Download Android keystore
-        id: android_keystore
-        uses: timheuer/base64-to-file@v1.2
-        with:
-          fileName: keystore.jks
-          encodedString: ${{ secrets.KEYSTORE_BASE64 }}
-      - name: Create key.properties
-        run: |
-          echo "storeFile=${{ steps.android_keystore.outputs.filePath }}" > simple_live_app/android/key.properties
-          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> simple_live_app/android/key.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> simple_live_app/android/key.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> simple_live_app/android/key.properties
-          # 验证文件是否生成
-          cat simple_live_app/android/key.properties | grep -v -E "storePassword|keyPassword" # 不输出密码
-
       # 设置JAVA环境
       - uses: actions/setup-java@v4
         with:
@@ -75,7 +43,7 @@ jobs:
           cd simple_live_app
           flutter pub get
 
-      # 安装appdmg npm install -g appdmg
+      # 安装appdmg
       - name: Install appdmg
         run: npm install -g appdmg
 
@@ -83,13 +51,13 @@ jobs:
       - name: Install flutter_distributor
         run: dart pub global activate flutter_distributor
 
-      # 打包APK
-      - name: Build APK
+      # 打包APK（跳过签名）
+      - name: Build APK (No Sign)
         run: |
           cd simple_live_app
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --split-per-abi --no-sign
 
-      #上传Artifacts
+      # 上传Android APK至Artifacts
       - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -99,28 +67,13 @@ jobs:
             simple_live_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             simple_live_app/build/app/outputs/flutter-apk/app-x86_64-release.apk
 
-      # TV APK签名设置
-      - name: Download Android TV keystore
-        id: android_tv_keystore
-        uses: timheuer/base64-to-file@v1.2
-        with:
-          fileName: keystore_tv.jks
-          encodedString: ${{ secrets.TV_KEYSTORE_BASE64 }}
-      - name: Create TV key.properties
-        run: |
-          echo "storeFile=${{ steps.android_tv_keystore.outputs.filePath }}" > simple_live_tv_app/android/key.properties
-          echo "storePassword=${{ secrets.TV_STORE_PASSWORD }}" >> simple_live_tv_app/android/key.properties
-          echo "keyPassword=${{ secrets.TV_KEY_PASSWORD }}" >> simple_live_tv_app/android/key.properties
-          echo "keyAlias=${{ secrets.TV_KEY_ALIAS }}" >> simple_live_tv_app/android/key.properties
-          # 验证文件
-          cat simple_live_tv_app/android/key.properties | grep -v -E "storePassword|keyPassword"
-
-      #打包 Android TV APK
-      - name: Build TV APK
+      # 打包 Android TV APK（跳过签名）
+      - name: Build TV APK (No Sign)
         run: |
           cd simple_live_tv_app
-          flutter build apk --release --split-per-abi
-      #上传TV APK至Artifacts
+          flutter pub get
+          flutter build apk --release --split-per-abi --no-sign
+      # 上传TV APK至Artifacts
       - name: Upload TV APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -130,14 +83,14 @@ jobs:
             simple_live_tv_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             simple_live_tv_app/build/app/outputs/flutter-apk/app-x86_64-release.apk
 
-      #打包iOS
-      - name: Build IPA
+      # 打包iOS（未签名）
+      - name: Build iOS Runner.app
         run: |
           cd simple_live_app
           flutter build ios --release --no-codesign
 
-      #创建未签名ipa
-      - name: Create IPA
+      # 创建未签名IPA
+      - name: Create Unsigned IPA
         run: |
           cd simple_live_app
           mkdir -p build/ios/iphoneos/Payload
@@ -168,8 +121,9 @@ jobs:
           path: |
             simple_live_app/build/dist/*/*.dmg
             simple_live_app/build/dist/*/*.zip
-      #完成
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+
+      # 完成提示
+      - run: echo "🍏 Mac/iOS/Android build job status: ${{ job.status }}."
 
   # 打包Linux
   build-linux:
@@ -182,33 +136,40 @@ jobs:
         with:
           repository: xiaoyaocz/dart_simple_live.git
           ref: dev
+
       # 设置Flutter环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.22.x"
           cache: true
-      # 安装依赖
+
+      # 安装Linux依赖
       - name: Update apt-get
         run: sudo apt-get update
       - name: Install Dependencies
         run: sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libmpv-dev mpv
+
       # 打开Linux Desktop支持
       - name: Enable Flutter Desktop
         run: flutter config --enable-linux-desktop
+
       # 更新Flutter的packages
       - name: Restore Packages
         run: |
           cd simple_live_app
           flutter pub get
+
       # 设置flutter_distributor环境
       - name: Install flutter_distributor
         run: dart pub global activate flutter_distributor
-      # build Linux ZIP\DMG
+
+      # 打包Linux
       - name: Build Linux
         run: |
           cd simple_live_app
           flutter_distributor package --platform linux --targets deb,zip --skip-clean
+
       # 上传Linux包至Artifacts
       - name: Upload Linux APP to Artifacts
         uses: actions/upload-artifact@v4
@@ -218,8 +179,8 @@ jobs:
             simple_live_app/build/dist/*/*.deb
             simple_live_app/build/dist/*/*.zip
 
-        #完成
-      - run: echo "🍏 Linux job's status is ${{ job.status }}."
+      # 完成提示
+      - run: echo "🐧 Linux build job status: ${{ job.status }}."
 
   # 打包Windows
   build-windows:
@@ -232,26 +193,34 @@ jobs:
         with:
           repository: xiaoyaocz/dart_simple_live.git
           ref: dev
+
       # 设置Flutter环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.22.x"
           cache: true
+
+      # 打开Windows Desktop支持
       - name: Enable Flutter Desktop
         run: flutter config --enable-windows-desktop
+
+      # 更新Flutter的packages
       - name: Restore Packages
         run: |
           cd simple_live_app
           flutter pub get
+
       # 设置flutter_distributor环境
       - name: Install flutter_distributor
         run: dart pub global activate flutter_distributor
-      # build Windows ZIP\MSIX
+
+      # 打包Windows
       - name: Build Windows
         run: |
           cd simple_live_app
           flutter_distributor package --platform windows --targets msix,zip --skip-clean
+
       # 上传Windows至Artifacts
       - name: Upload Windows APP to Artifacts
         uses: actions/upload-artifact@v4
@@ -260,5 +229,6 @@ jobs:
           path: |
             simple_live_app/build/dist/*/*.msix
             simple_live_app/build/dist/*/*.zip
-        #完成
-      - run: echo "🍏 Windows job's status is ${{ job.status }}."          
+
+      # 完成提示
+      - run: echo "🪟 Windows build job status: ${{ job.status }}."
