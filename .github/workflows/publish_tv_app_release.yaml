@@ -10,16 +10,30 @@ jobs:
   # 打包Android、iOS、Mac
   build-mac-ios-android:
     runs-on: macos-latest
-
     permissions:
       contents: write
-
     steps:
       # 签出代码
       - uses: actions/checkout@v4
         with:
           repository: xiaoyaocz/dart_simple_live.git
           ref: dev
+
+      # 检查必要的 Secrets 是否存在
+      - name: Check required secrets
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "❌ KEYSTORE_BASE64 secret is not set!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.STORE_PASSWORD }}" ] || [ -z "${{ secrets.KEY_PASSWORD }}" ] || [ -z "${{ secrets.KEY_ALIAS }}" ]; then
+            echo "❌ Android keystore password/alias secrets are missing!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.TV_KEYSTORE_BASE64 }}" ]; then
+            echo "❌ TV_KEYSTORE_BASE64 secret is not set!"
+            exit 1
+          fi
 
       # APK签名设置
       - name: Download Android keystore
@@ -34,6 +48,8 @@ jobs:
           echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> simple_live_app/android/key.properties
           echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> simple_live_app/android/key.properties
           echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> simple_live_app/android/key.properties
+          # 验证文件是否生成
+          cat simple_live_app/android/key.properties | grep -v -E "storePassword|keyPassword" # 不输出密码
 
       # 设置JAVA环境
       - uses: actions/setup-java@v4
@@ -90,12 +106,14 @@ jobs:
         with:
           fileName: keystore_tv.jks
           encodedString: ${{ secrets.TV_KEYSTORE_BASE64 }}
-      - name: Create key.properties
+      - name: Create TV key.properties
         run: |
           echo "storeFile=${{ steps.android_tv_keystore.outputs.filePath }}" > simple_live_tv_app/android/key.properties
           echo "storePassword=${{ secrets.TV_STORE_PASSWORD }}" >> simple_live_tv_app/android/key.properties
           echo "keyPassword=${{ secrets.TV_KEY_PASSWORD }}" >> simple_live_tv_app/android/key.properties
           echo "keyAlias=${{ secrets.TV_KEY_ALIAS }}" >> simple_live_tv_app/android/key.properties
+          # 验证文件
+          cat simple_live_tv_app/android/key.properties | grep -v -E "storePassword|keyPassword"
 
       #打包 Android TV APK
       - name: Build TV APK
@@ -122,7 +140,7 @@ jobs:
       - name: Create IPA
         run: |
           cd simple_live_app
-          mkdir build/ios/iphoneos/Payload
+          mkdir -p build/ios/iphoneos/Payload
           cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/Runner.app
           cd build/ios/iphoneos/
           zip -q -r ios_no_sign.ipa Payload
